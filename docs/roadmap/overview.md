@@ -24,6 +24,10 @@ Unreal Engine でのゲーム開発 + ゲームエンジン自作を最終目標
 | 11 | `render-graph` | D3D12 | Render Graph・Transient Alloc・Async Compute・Bindless・GPU Driven |
 | 12 | `unreal-integration` | UE5 | Global Shader・Vertex Factory・Custom ShadingModel・Niagara |
 | 13 | `slang-rewrite` | Slang | HLSL → Slang・Interface・Generics・Auto-Diff・クロスプラットフォーム |
+| 14 | `global-illumination` | D3D12 DXR | SH Probe・DDGI・VXGI・Screen Space GI・ReSTIR GI・Lumen 風ハイブリッド |
+| 15 | `debug-rendering` | D3D11/12 | Immediate Mode デバッグ描画・AABB/骨格/Gizmo・オーバーレイモード・GPU タイミング |
+| 16 | `advanced-shadows` | D3D12 | EVSM・Moment Shadow Map・Virtual Shadow Map・Contact Shadow・Area Light Shadow |
+| 17 | `mobile-optimization` | D3D11/Vulkan | TBDR アーキテクチャ・half 精度・ASTC・帯域幅削減・UE5 Mobile |
 
 ---
 
@@ -81,6 +85,22 @@ Phase 12 (unreal-integration)
 Phase 13 (slang-rewrite)
   必要: Phase 1-11 完了（移植元の HLSL コードが存在すること）
   習得: [19] 言語設計・クロスプラットフォーム
+
+Phase 14 (global-illumination)
+  必要: Phase 7（DXR）・Phase 9（Probe 概念）・Phase 11（Render Graph）完了
+  習得: [20] SH・DDGI・VXGI・ReSTIR GI
+
+Phase 15 (debug-rendering)
+  必要: Phase 1 完了（Phase 2〜3 と並行して着手推奨）
+  習得: [22] Immediate Mode 描画・GPU タイムスタンプ
+
+Phase 16 (advanced-shadows)
+  必要: Phase 2（Shadow 基礎）・Phase 5（Deferred）・Phase 7（DXR）完了
+  習得: [10の発展] EVSM・MSM・Virtual Shadow Map・Area Light Shadow
+
+Phase 17 (mobile-optimization)
+  必要: Phase 1-4 完了・UE5 経験（Phase 12）
+  習得: [00の発展] TBDR・[01の発展] half precision・[21] 帯域幅最適化
 ```
 
 ---
@@ -256,6 +276,36 @@ endfunction()
 - Auto-Diff の実験（簡易 NeRF）
 - DXIL / SPIR-V / Metal へのクロスコンパイル
 
+### Phase 14: Global Illumination
+- Baked SH Probe GI（静的 Irradiance）
+- DDGI（Dynamic Diffuse GI）: DXR プローブレイキャスト・Octahedral テクスチャ
+- Voxel Cone Tracing（VXGI）: ボクセル化 CS・コーントレーシング
+- Screen Space GI（SSGI）: スクリーン空間間接光
+- ReSTIR GI: Reservoir ベース高速 GI サンプリング
+- Lumen 風ハイブリッド GI: 距離別手法ブレンド
+
+### Phase 15: Debug Rendering
+- Immediate Mode デバッグ API（Line / AABB / Sphere / Arrow / Frustum）
+- 深度テスト制御（Always-On-Top XRay モード）
+- 骨格（Skeleton）可視化
+- G-Buffer デバッグオーバーレイモード
+- GPU タイムスタンプクエリによるパス別タイミング計測
+
+### Phase 16: Advanced Shadows
+- EVSM（Exponential Variance Shadow Map）: Light Bleeding 改善
+- Moment Shadow Maps（4 次モーメント）
+- Virtual Shadow Map（UE5 方式）: 仮想テクスチャアトラス・ページング
+- Contact Shadow（スクリーンスペース微細影）
+- Area Light PCSS（半影幅の物理的計算）
+- Shadow Atlas 動的管理（Bin Packing・キャッシュ）
+
+### Phase 17: Mobile Optimization
+- TBDR アーキテクチャの理解（タイルシェーディング・帯域幅）
+- half 精度（min16float）の活用
+- ASTC テクスチャ圧縮（4×4 / 6×6 / 8×8）
+- フレームバッファ帯域幅削減（DontCare / Framebuffer Fetch）
+- UE5 Mobile Rendering パイプライン
+
 ---
 
 ## 関連ドキュメント
@@ -274,6 +324,10 @@ endfunction()
 - [11-render-graph.md](11-render-graph.md)
 - [12-unreal-integration.md](12-unreal-integration.md)
 - [13-slang-rewrite.md](13-slang-rewrite.md)
+- [14-global-illumination.md](14-global-illumination.md)
+- [15-debug-rendering.md](15-debug-rendering.md)
+- [16-advanced-shadows.md](16-advanced-shadows.md)
+- [17-mobile-optimization.md](17-mobile-optimization.md)
 
 ### 概念ドキュメント
 - [concepts/00-graphics-pipeline.md](../concepts/00-graphics-pipeline.md)
@@ -282,3 +336,6 @@ endfunction()
 - [concepts/15-compute-shaders.md](../concepts/15-compute-shaders.md)
 - [concepts/18-unreal-engine-shaders.md](../concepts/18-unreal-engine-shaders.md)
 - [concepts/19-slang.md](../concepts/19-slang.md)
+- [concepts/20-global-illumination.md](../concepts/20-global-illumination.md)
+- [concepts/21-physical-camera.md](../concepts/21-physical-camera.md)
+- [concepts/22-debug-rendering.md](../concepts/22-debug-rendering.md)
