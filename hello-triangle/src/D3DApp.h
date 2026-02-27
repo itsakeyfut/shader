@@ -1,0 +1,34 @@
+#pragma once
+
+#include <windows.h>
+
+#include <d3d11.h>
+#include <dxgi.h>
+#include <wrl/client.h>
+
+class D3DApp {
+public:
+    D3DApp()              = default;
+    D3DApp(const D3DApp&) = delete;
+    D3DApp& operator=(const D3DApp&) = delete;
+    ~D3DApp();
+
+    [[nodiscard]] bool Init(HWND hwnd, int width, int height);
+    void OnResize(int width, int height);
+
+    void Update(float dt);
+    void Render();
+
+private:
+    [[nodiscard]] bool CreateRenderTarget();
+    void               ReleaseRenderTarget();
+
+    Microsoft::WRL::ComPtr<ID3D11Device>           mDevice;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext>    mContext;
+    Microsoft::WRL::ComPtr<IDXGISwapChain>         mSwapChain;
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> mRTV;
+
+    D3D11_VIEWPORT mViewport = {};
+    int            mWidth    = 0;
+    int            mHeight   = 0;
+};
