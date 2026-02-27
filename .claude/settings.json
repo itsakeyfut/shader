@@ -1,0 +1,42 @@
+{
+    "permissions": {
+        "allow": [
+            "Bash(mkdir:*)",
+            "Bash(touch:*)",
+            "Bash(ls:*)",
+            "Bash(tree:*)",
+            "Bash(mv:*)",
+            "Bash(cp:*)",
+            "Bash(gh:*)",
+            "Bash(cmake:*)",
+            "Bash(cmake --build:*)",
+            "Bash(cmake --preset:*)",
+            "Bash(ninja:*)",
+            "Bash(fxc:*)",
+            "Bash(dxc:*)",
+            "Bash(slangc:*)",
+            "Bash(cl:*)",
+            "Bash(clang-format:*)",
+            "Bash(clang-tidy:*)",
+            "Bash(curl:*)",
+            "Bash(pkill:*)",
+            "Bash(true)"
+        ],
+        "deny": [
+            "Bash(sudo:*)",
+            "Bash(rm -rf /*)",
+            "Bash(wget:*)",
+            "Bash(git reset --hard:*)",
+            "Bash(git push --force:*)",
+            "Bash(git rebase:*)",
+            "Read(**/.env*)",
+            "Read(id_rsa)",
+            "Read(id_ed25519)",
+            "Read(**/*token*)",
+            "Read(**/*key*)",
+            "Read(**/*secret*)",
+            "Write(**/secrets/**)",
+            "Write(**/.env*)"
+        ]
+    }
+}
