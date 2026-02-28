@@ -14,6 +14,15 @@ struct alignas(16) PerObjectCB {
 static_assert(sizeof(PerObjectCB) % 16 == 0,
     "PerObjectCB must be a multiple of 16 bytes");
 
+// Pack RGBA into a uint32_t whose byte layout matches DXGI_FORMAT_R8G8B8A8_UNORM.
+// On little-endian systems the bytes land as [R][G][B][A] in memory.
+constexpr uint32_t PackRGBA(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 0xFF) {
+    return static_cast<uint32_t>(r)
+         | (static_cast<uint32_t>(g) <<  8)
+         | (static_cast<uint32_t>(b) << 16)
+         | (static_cast<uint32_t>(a) << 24);
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -129,9 +138,11 @@ bool D3DApp::InitPipeline(const std::filesystem::path& shaderDir) {
     if (!mPS.Load(mDevice.Get(), shaderDir / L"pixel.cso"))  return false;
 
     // Input layout — must match the Vertex struct and VSInput in vertex.hlsl.
+    // Offsets: pos=0 (12 B), col=12 (16 B), uv=28 (8 B). Stride = 36 B.
     const D3D11_INPUT_ELEMENT_DESC layoutDesc[] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0,  0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT,  0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,   0,  0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0 },
     };
     HRESULT hr = mDevice->CreateInputLayout(
         layoutDesc,
@@ -152,13 +163,67 @@ bool D3DApp::InitPipeline(const std::filesystem::path& shaderDir) {
         return false;
     }
 
-    // Triangle vertices in world space.
-    const Vertex kTriangle[] = {
-        { { 0.0f,  0.5f, 0.0f}, {1.f, 0.f, 0.f, 1.f} }, // top   - red
-        { { 0.5f, -0.5f, 0.0f}, {0.f, 1.f, 0.f, 1.f} }, // right - green
-        { {-0.5f, -0.5f, 0.0f}, {0.f, 0.f, 1.f, 1.f} }, // left  - blue
+    // Procedural 64x64 checkerboard texture (white / cornflower-blue cells).
+    if (!CreateCheckerboardTexture()) return false;
+
+    // Linear-wrap sampler.
+    D3D11_SAMPLER_DESC sd = {};
+    sd.Filter   = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    sd.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+    sd.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+    sd.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+    sd.MaxLOD   = D3D11_FLOAT32_MAX;
+    if (FAILED(mDevice->CreateSamplerState(&sd, mSampler.GetAddressOf()))) return false;
+
+    // Quad vertices — two CW triangles forming a unit square in the XY plane.
+    // D3D UV convention: u = left→right (0→1), v = top→bottom (0→1).
+    const Vertex kQuad[] = {
+        //  pos                    col           uv
+        { {-0.5f,  0.5f, 0.f}, {1,1,1,1}, {0.f, 0.f} }, // top-left
+        { { 0.5f,  0.5f, 0.f}, {1,1,1,1}, {1.f, 0.f} }, // top-right
+        { {-0.5f, -0.5f, 0.f}, {1,1,1,1}, {0.f, 1.f} }, // bottom-left
+        { { 0.5f,  0.5f, 0.f}, {1,1,1,1}, {1.f, 0.f} }, // top-right    (tri 2)
+        { { 0.5f, -0.5f, 0.f}, {1,1,1,1}, {1.f, 1.f} }, // bottom-right
+        { {-0.5f, -0.5f, 0.f}, {1,1,1,1}, {0.f, 1.f} }, // bottom-left
     };
-    return mTriangle.Create(mDevice.Get(), kTriangle);
+    return mMesh.Create(mDevice.Get(), kQuad);
+}
+
+// ---------------------------------------------------------------------------
+// CreateCheckerboardTexture
+// ---------------------------------------------------------------------------
+
+bool D3DApp::CreateCheckerboardTexture() {
+    constexpr int kSize     = 64; // texture dimensions (64x64 texels)
+    constexpr int kCellSize =  8; // checkerboard cell size in texels
+
+    uint32_t pixels[kSize * kSize];
+    for (int y = 0; y < kSize; ++y) {
+        for (int x = 0; x < kSize; ++x) {
+            const bool even = ((x / kCellSize) + (y / kCellSize)) % 2 == 0;
+            pixels[y * kSize + x] = even
+                ? PackRGBA(255, 255, 255)   // white
+                : PackRGBA(100, 149, 237);  // cornflower blue
+        }
+    }
+
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width            = kSize;
+    td.Height           = kSize;
+    td.MipLevels        = 1;
+    td.ArraySize        = 1;
+    td.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
+    td.SampleDesc.Count = 1;
+    td.Usage            = D3D11_USAGE_IMMUTABLE;
+    td.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
+
+    const D3D11_SUBRESOURCE_DATA initData { pixels, kSize * sizeof(uint32_t), 0 };
+
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> tex;
+    if (FAILED(mDevice->CreateTexture2D(&td, &initData, tex.GetAddressOf()))) return false;
+
+    return SUCCEEDED(mDevice->CreateShaderResourceView(
+        tex.Get(), nullptr, mTextureSRV.GetAddressOf()));
 }
 
 // ---------------------------------------------------------------------------
@@ -267,11 +332,13 @@ void D3DApp::Render() {
     mContext->PSSetShader(mPS.Get(), nullptr, 0);
     mContext->IASetInputLayout(mInputLayout.Get());
     mContext->VSSetConstantBuffers(0, 1, mPerObjectCB.GetAddressOf());
+    mContext->PSSetShaderResources(0, 1, mTextureSRV.GetAddressOf());
+    mContext->PSSetSamplers(0, 1, mSampler.GetAddressOf());
 
-    // --- Draw triangle ---
-    mTriangle.Bind(mContext.Get());
+    // --- Draw quad ---
+    mMesh.Bind(mContext.Get());
     mContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    mTriangle.Draw(mContext.Get());
+    mMesh.Draw(mContext.Get());
 
     mSwapChain->Present(1, 0); // vsync
 }
