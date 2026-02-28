@@ -1,6 +1,5 @@
 #include "D3DApp.h"
 
-#include <cassert>
 #include <iterator>
 
 D3DApp::~D3DApp() {
@@ -33,8 +32,13 @@ bool D3DApp::Init(HWND hwnd, int width, int height) {
     scd.Flags                            = 0;
 
     // --- Device feature levels ---
+    // D3D_FEATURE_LEVEL_11_1 causes E_INVALIDARG on systems without the 11.1
+    // runtime; fall back to 11_0-only in that case.
     constexpr D3D_FEATURE_LEVEL kFeatureLevels[] = {
         D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0,
+    };
+    constexpr D3D_FEATURE_LEVEL kFallbackFeatureLevels[] = {
         D3D_FEATURE_LEVEL_11_0,
     };
 
@@ -43,35 +47,37 @@ bool D3DApp::Init(HWND hwnd, int width, int height) {
     createFlags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
-    HRESULT hr = D3D11CreateDeviceAndSwapChain(
-        nullptr,                  // default adapter
-        D3D_DRIVER_TYPE_HARDWARE,
-        nullptr,                  // no software rasterizer
-        createFlags,
-        kFeatureLevels,
-        static_cast<UINT>(std::size(kFeatureLevels)),
-        D3D11_SDK_VERSION,
-        &scd,
-        mSwapChain.GetAddressOf(),
-        mDevice.GetAddressOf(),
-        nullptr,                  // don't care about achieved feature level
-        mContext.GetAddressOf()
-    );
-
-    if (FAILED(hr)) {
-        // Retry without debug layer in case D3D11 debug runtime is not installed.
-        createFlags &= ~D3D11_CREATE_DEVICE_DEBUG;
-        hr = D3D11CreateDeviceAndSwapChain(
-            nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-            createFlags,
-            kFeatureLevels, static_cast<UINT>(std::size(kFeatureLevels)),
+    // Helper lambda to avoid repeating the long argument list.
+    auto tryCreate = [&](UINT flags, const D3D_FEATURE_LEVEL* levels, UINT count) {
+        return D3D11CreateDeviceAndSwapChain(
+            nullptr,                  // default adapter
+            D3D_DRIVER_TYPE_HARDWARE,
+            nullptr,                  // no software rasterizer
+            flags,
+            levels,
+            count,
             D3D11_SDK_VERSION,
             &scd,
             mSwapChain.GetAddressOf(),
             mDevice.GetAddressOf(),
-            nullptr,
+            nullptr,                  // don't care about achieved feature level
             mContext.GetAddressOf()
         );
+    };
+
+    HRESULT hr = tryCreate(createFlags, kFeatureLevels, static_cast<UINT>(std::size(kFeatureLevels)));
+    if (hr == E_INVALIDARG) {
+        // 11.1 runtime not present; retry with 11.0 only.
+        hr = tryCreate(createFlags, kFallbackFeatureLevels, static_cast<UINT>(std::size(kFallbackFeatureLevels)));
+    }
+
+    if (FAILED(hr)) {
+        // Retry without debug layer in case the D3D11 debug runtime is not installed.
+        createFlags &= ~D3D11_CREATE_DEVICE_DEBUG;
+        hr = tryCreate(createFlags, kFeatureLevels, static_cast<UINT>(std::size(kFeatureLevels)));
+        if (hr == E_INVALIDARG) {
+            hr = tryCreate(createFlags, kFallbackFeatureLevels, static_cast<UINT>(std::size(kFallbackFeatureLevels)));
+        }
     }
 
     if (FAILED(hr)) {
@@ -109,9 +115,6 @@ void D3DApp::OnResize(int width, int height) {
     if (width == 0 || height == 0) return;
     if (width == mWidth && height == mHeight) return;
 
-    mWidth  = width;
-    mHeight = height;
-
     ReleaseRenderTarget();
 
     HRESULT hr = mSwapChain->ResizeBuffers(
@@ -121,10 +124,12 @@ void D3DApp::OnResize(int width, int height) {
         DXGI_FORMAT_UNKNOWN,        // keep existing format
         0
     );
-    assert(SUCCEEDED(hr));
+    if (FAILED(hr)) return;
 
-    [[maybe_unused]] bool ok = CreateRenderTarget();
-    assert(ok);
+    mWidth  = width;
+    mHeight = height;
+
+    if (!CreateRenderTarget()) return;
 }
 
 void D3DApp::Update([[maybe_unused]] float dt) {
@@ -132,6 +137,8 @@ void D3DApp::Update([[maybe_unused]] float dt) {
 }
 
 void D3DApp::Render() {
+    if (!mContext || !mRTV) return; // guard against failed resize
+
     // Clear with cornflower blue (classic D3D sample color).
     constexpr float kClearColor[4] = { 0.392f, 0.584f, 0.929f, 1.0f };
 
