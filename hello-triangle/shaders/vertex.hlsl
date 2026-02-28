@@ -1,3 +1,8 @@
+cbuffer PerObject : register(b0) {
+    float4x4 mvpMatrix; // pre-transposed on CPU (row-major -> column-major)
+    float4   tintColor;
+};
+
 struct VSInput {
     float3 position : POSITION;
     float4 color    : COLOR;
@@ -10,7 +15,7 @@ struct VSOutput {
 
 VSOutput VSMain(VSInput input) {
     VSOutput output;
-    output.position = float4(input.position, 1.0); // NDC pass-through (no MVP yet)
-    output.color    = input.color;
+    output.position = mul(mvpMatrix, float4(input.position, 1.0));
+    output.color    = input.color * tintColor;
     return output;
 }

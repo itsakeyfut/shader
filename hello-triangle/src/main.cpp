@@ -7,7 +7,7 @@
 namespace {
 
 constexpr wchar_t kClassName[]  = L"HelloTriangleWnd";
-constexpr wchar_t kWindowTitle[] = L"Phase 1-1: D3D11 Init";
+constexpr wchar_t kWindowTitle[] = L"Phase 1-4: Constant Buffer (MVP)";
 constexpr int     kInitWidth    = 1280;
 constexpr int     kInitHeight   = 720;
 

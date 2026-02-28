@@ -43,4 +43,8 @@ private:
     PixelShader                               mPS;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> mInputLayout;
     Mesh                                      mTriangle;
+
+    // --- Phase 1-4: constant buffer (MVP matrix + tint color) ---
+    Microsoft::WRL::ComPtr<ID3D11Buffer>      mPerObjectCB;
+    float                                     mAngle = 0.f; // rotation angle (radians)
 };
