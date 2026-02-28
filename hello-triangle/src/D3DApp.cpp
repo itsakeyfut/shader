@@ -14,6 +14,16 @@ struct alignas(16) PerObjectCB {
 static_assert(sizeof(PerObjectCB) % 16 == 0,
     "PerObjectCB must be a multiple of 16 bytes");
 
+// Mirrors cbuffer PerFrame : register(b1) in pixel.hlsl.
+// Size: 4 + 4 + 8 = 16 bytes (multiple of 16).
+struct alignas(16) PerFrameCB {
+    float time;       //  4 bytes — accumulated time in seconds
+    float deltaTime;  //  4 bytes — last frame duration in seconds
+    float padding[2]; //  8 bytes — explicit padding to satisfy 16-byte alignment
+};
+static_assert(sizeof(PerFrameCB) == 16,
+    "PerFrameCB must be exactly 16 bytes");
+
 // Pack RGBA into a uint32_t whose byte layout matches DXGI_FORMAT_R8G8B8A8_UNORM.
 // On little-endian systems the bytes land as [R][G][B][A] in memory.
 constexpr uint32_t PackRGBA(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 0xFF) {
@@ -163,6 +173,16 @@ bool D3DApp::InitPipeline(const std::filesystem::path& shaderDir) {
         return false;
     }
 
+    // Dynamic constant buffer for per-frame data (time, deltaTime) — PS slot 1.
+    D3D11_BUFFER_DESC pfbd = {};
+    pfbd.ByteWidth      = sizeof(PerFrameCB);
+    pfbd.Usage          = D3D11_USAGE_DYNAMIC;
+    pfbd.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    pfbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(mDevice->CreateBuffer(&pfbd, nullptr, mPerFrameCB.GetAddressOf()))) {
+        return false;
+    }
+
     // Procedural 64x64 checkerboard texture (white / cornflower-blue cells).
     if (!CreateCheckerboardTexture()) return false;
 
@@ -289,32 +309,45 @@ void D3DApp::Update(float dt) {
     mAngle += dt;
     if (mAngle > DirectX::XM_2PI) mAngle -= DirectX::XM_2PI;
 
-    if (!mPerObjectCB) return;
+    // Accumulate elapsed time for UV animation.
+    mTime += dt;
 
-    // --- Build MVP matrix ---
-    const DirectX::XMMATRIX model = DirectX::XMMatrixRotationY(mAngle);
+    // --- Upload per-object CB (MVP + tint) ---
+    if (mPerObjectCB) {
+        const DirectX::XMMATRIX model = DirectX::XMMatrixRotationY(mAngle);
 
-    const DirectX::XMVECTOR eye    = DirectX::XMVectorSet(0.f, 0.f, -2.f, 0.f);
-    const DirectX::XMVECTOR target = DirectX::XMVectorZero();
-    const DirectX::XMVECTOR up     = DirectX::XMVectorSet(0.f, 1.f,  0.f, 0.f);
-    const DirectX::XMMATRIX view   = DirectX::XMMatrixLookAtLH(eye, target, up);
+        const DirectX::XMVECTOR eye    = DirectX::XMVectorSet(0.f, 0.f, -2.f, 0.f);
+        const DirectX::XMVECTOR target = DirectX::XMVectorZero();
+        const DirectX::XMVECTOR up     = DirectX::XMVectorSet(0.f, 1.f,  0.f, 0.f);
+        const DirectX::XMMATRIX view   = DirectX::XMMatrixLookAtLH(eye, target, up);
 
-    const float aspect = (mHeight > 0)
-        ? static_cast<float>(mWidth) / static_cast<float>(mHeight)
-        : 1.f;
-    const DirectX::XMMATRIX proj = DirectX::XMMatrixPerspectiveFovLH(
-        DirectX::XM_PIDIV4, aspect, 0.1f, 100.f);
+        const float aspect = (mHeight > 0)
+            ? static_cast<float>(mWidth) / static_cast<float>(mHeight)
+            : 1.f;
+        const DirectX::XMMATRIX proj = DirectX::XMMatrixPerspectiveFovLH(
+            DirectX::XM_PIDIV4, aspect, 0.1f, 100.f);
 
-    // Transpose: DirectXMath stores row-major; HLSL float4x4 is column-major.
-    const DirectX::XMMATRIX mvp = DirectX::XMMatrixTranspose(model * view * proj);
+        // Transpose: DirectXMath stores row-major; HLSL float4x4 is column-major.
+        const DirectX::XMMATRIX mvp = DirectX::XMMatrixTranspose(model * view * proj);
 
-    // --- Upload to GPU via Map / Unmap ---
-    D3D11_MAPPED_SUBRESOURCE mapped = {};
-    if (SUCCEEDED(mContext->Map(mPerObjectCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-        auto* cb = static_cast<PerObjectCB*>(mapped.pData);
-        DirectX::XMStoreFloat4x4(&cb->mvpMatrix, mvp);
-        cb->tintColor = { 1.f, 1.f, 1.f, 1.f }; // no tint
-        mContext->Unmap(mPerObjectCB.Get(), 0);
+        D3D11_MAPPED_SUBRESOURCE mapped = {};
+        if (SUCCEEDED(mContext->Map(mPerObjectCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+            auto* cb = static_cast<PerObjectCB*>(mapped.pData);
+            DirectX::XMStoreFloat4x4(&cb->mvpMatrix, mvp);
+            cb->tintColor = { 1.f, 1.f, 1.f, 1.f }; // no tint
+            mContext->Unmap(mPerObjectCB.Get(), 0);
+        }
+    }
+
+    // --- Upload per-frame CB (time / deltaTime) ---
+    if (mPerFrameCB) {
+        D3D11_MAPPED_SUBRESOURCE mapped = {};
+        if (SUCCEEDED(mContext->Map(mPerFrameCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+            auto* pf      = static_cast<PerFrameCB*>(mapped.pData);
+            pf->time      = mTime;
+            pf->deltaTime = dt;
+            mContext->Unmap(mPerFrameCB.Get(), 0);
+        }
     }
 }
 
@@ -332,6 +365,7 @@ void D3DApp::Render() {
     mContext->PSSetShader(mPS.Get(), nullptr, 0);
     mContext->IASetInputLayout(mInputLayout.Get());
     mContext->VSSetConstantBuffers(0, 1, mPerObjectCB.GetAddressOf());
+    mContext->PSSetConstantBuffers(1, 1, mPerFrameCB.GetAddressOf());
     mContext->PSSetShaderResources(0, 1, mTextureSRV.GetAddressOf());
     mContext->PSSetSamplers(0, 1, mSampler.GetAddressOf());
 
