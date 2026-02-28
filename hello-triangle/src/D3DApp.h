@@ -52,4 +52,8 @@ private:
     // --- Phase 1-5: texture + sampler ---
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> mTextureSRV;
     Microsoft::WRL::ComPtr<ID3D11SamplerState>       mSampler;
+
+    // --- Phase 1-6: per-frame constant buffer (time / deltaTime) ---
+    Microsoft::WRL::ComPtr<ID3D11Buffer> mPerFrameCB;
+    float                                mTime = 0.f; // accumulated time (seconds)
 };
