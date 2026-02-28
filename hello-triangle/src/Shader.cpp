@@ -8,11 +8,17 @@ std::vector<std::byte> ReadBinaryFile(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file) return {};
 
-    const auto size = static_cast<std::size_t>(file.tellg());
-    file.seekg(0);
+    const std::streampos end = file.tellg();
+    if (end <= 0) return {}; // tellg() failure returns streampos(-1)
+    const auto size = static_cast<std::size_t>(end);
+
+    file.seekg(0, std::ios::beg);
+    if (!file) return {};
 
     std::vector<std::byte> buf(size);
-    file.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(size));
+    if (!file.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(size))) {
+        return {};
+    }
     return buf;
 }
 

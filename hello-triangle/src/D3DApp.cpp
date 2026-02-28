@@ -90,7 +90,8 @@ bool D3DApp::Init(HWND hwnd, int width, int height) {
 
     // Locate compiled shaders in a "shaders/" subdirectory next to the exe.
     wchar_t exePath[MAX_PATH] = {};
-    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    const DWORD pathLen = GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    if (pathLen == 0 || pathLen == MAX_PATH) return false; // failed or truncated
     const auto shaderDir = std::filesystem::path(exePath).parent_path() / L"shaders";
 
     return InitPipeline(shaderDir);
