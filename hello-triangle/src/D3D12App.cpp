@@ -374,7 +374,8 @@ void D3D12App::WaitForGPU() {
     if (FAILED(mCommandQueue->Signal(mFence.Get(), mFenceValue))) return;
     if (mFence->GetCompletedValue() < mFenceValue) {
         if (FAILED(mFence->SetEventOnCompletion(mFenceValue, mFenceEvent))) return;
-        WaitForSingleObject(mFenceEvent, INFINITE);
+        // Bounded wait: 5 s covers normal vsync stalls; returns on device removal.
+        WaitForSingleObject(mFenceEvent, 5000);
     }
 }
 
@@ -472,8 +473,8 @@ void D3D12App::Render() {
     if (!mCommandList || !mRenderTargets[mFrameIndex]) return;
 
     // --- Reset command allocator and list ---
-    mCommandAllocator->Reset();
-    mCommandList->Reset(mCommandAllocator.Get(), mPso.Get());
+    if (FAILED(mCommandAllocator->Reset())) return;
+    if (FAILED(mCommandList->Reset(mCommandAllocator.Get(), mPso.Get()))) return;
 
     // --- Set global state ---
     mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
@@ -509,12 +510,12 @@ void D3D12App::Render() {
                D3D12_RESOURCE_STATE_PRESENT);
 
     // --- Submit ---
-    mCommandList->Close();
+    if (FAILED(mCommandList->Close())) return;
     ID3D12CommandList* lists[] = { mCommandList.Get() };
     mCommandQueue->ExecuteCommandLists(1, lists);
 
     // --- Present (vsync) ---
-    mSwapChain->Present(1, 0);
+    if (FAILED(mSwapChain->Present(1, 0))) return;
 
     // --- Advance frame index and wait (simple full-sync pattern) ---
     mFrameIndex = mSwapChain->GetCurrentBackBufferIndex();
