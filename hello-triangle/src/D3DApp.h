@@ -28,6 +28,7 @@ private:
     [[nodiscard]] bool CreateRenderTarget();
     void               ReleaseRenderTarget();
     [[nodiscard]] bool InitPipeline(const std::filesystem::path& shaderDir);
+    [[nodiscard]] bool CreateCheckerboardTexture();
 
     // --- D3D11 core ---
     Microsoft::WRL::ComPtr<ID3D11Device>           mDevice;
@@ -38,13 +39,17 @@ private:
     int                                            mWidth    = 0;
     int                                            mHeight   = 0;
 
-    // --- Phase 1-2/1-3: shaders, input layout, triangle mesh ---
+    // --- Phase 1-2/1-3: shaders, input layout, quad mesh ---
     VertexShader                              mVS;
     PixelShader                               mPS;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> mInputLayout;
-    Mesh                                      mTriangle;
+    Mesh                                      mMesh;
 
     // --- Phase 1-4: constant buffer (MVP matrix + tint color) ---
     Microsoft::WRL::ComPtr<ID3D11Buffer>      mPerObjectCB;
     float                                     mAngle = 0.f; // rotation angle (radians)
+
+    // --- Phase 1-5: texture + sampler ---
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> mTextureSRV;
+    Microsoft::WRL::ComPtr<ID3D11SamplerState>       mSampler;
 };

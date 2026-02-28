@@ -9,6 +9,7 @@
 struct Vertex {
     float pos[3]; // xyz  (NDC in Phase 1; world-space from Phase 1-4+)
     float col[4]; // rgba
+    float uv[2];  // texture coordinates (u=left→right, v=top→bottom in D3D)
 };
 
 // Holds an immutable vertex buffer and issues draw calls.
