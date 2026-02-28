@@ -371,9 +371,9 @@ void D3D12App::WaitForGPU() {
     if (!mCommandQueue || !mFence || !mFenceEvent) return;
 
     ++mFenceValue;
-    mCommandQueue->Signal(mFence.Get(), mFenceValue);
+    if (FAILED(mCommandQueue->Signal(mFence.Get(), mFenceValue))) return;
     if (mFence->GetCompletedValue() < mFenceValue) {
-        mFence->SetEventOnCompletion(mFenceValue, mFenceEvent);
+        if (FAILED(mFence->SetEventOnCompletion(mFenceValue, mFenceEvent))) return;
         WaitForSingleObject(mFenceEvent, INFINITE);
     }
 }
@@ -421,7 +421,11 @@ void D3D12App::OnResize(int width, int height) {
     D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle =
         mRtvHeap->GetCPUDescriptorHandleForHeapStart();
     for (UINT i = 0; i < kFrameCount; ++i) {
-        mSwapChain->GetBuffer(i, IID_PPV_ARGS(mRenderTargets[i].GetAddressOf()));
+        if (FAILED(mSwapChain->GetBuffer(
+                i, IID_PPV_ARGS(mRenderTargets[i].GetAddressOf())))) {
+            mRenderTargets[i].Reset();
+            return;
+        }
         mDevice->CreateRenderTargetView(mRenderTargets[i].Get(), nullptr, rtvHandle);
         rtvHandle.ptr += mRtvDescSize;
     }
