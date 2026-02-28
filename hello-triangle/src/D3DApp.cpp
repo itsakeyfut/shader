@@ -84,7 +84,45 @@ bool D3DApp::Init(HWND hwnd, int width, int height) {
         return false;
     }
 
-    return CreateRenderTarget();
+    if (!CreateRenderTarget()) {
+        return false;
+    }
+
+    // Locate compiled shaders in a "shaders/" subdirectory next to the exe.
+    wchar_t exePath[MAX_PATH] = {};
+    const DWORD pathLen = GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    if (pathLen == 0 || pathLen == MAX_PATH) return false; // failed or truncated
+    const auto shaderDir = std::filesystem::path(exePath).parent_path() / L"shaders";
+
+    return InitPipeline(shaderDir);
+}
+
+bool D3DApp::InitPipeline(const std::filesystem::path& shaderDir) {
+    // Load vertex and pixel shaders from pre-compiled .cso files.
+    if (!mVS.Load(mDevice.Get(), shaderDir / L"vertex.cso")) return false;
+    if (!mPS.Load(mDevice.Get(), shaderDir / L"pixel.cso"))  return false;
+
+    // Input layout — must match the Vertex struct and VSInput in vertex.hlsl.
+    const D3D11_INPUT_ELEMENT_DESC layoutDesc[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0,  0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT,  0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    };
+    const HRESULT hr = mDevice->CreateInputLayout(
+        layoutDesc,
+        static_cast<UINT>(std::size(layoutDesc)),
+        mVS.Bytecode(),
+        mVS.BytecodeSize(),
+        mInputLayout.GetAddressOf()
+    );
+    if (FAILED(hr)) return false;
+
+    // Triangle vertices in NDC space (no MVP yet — Phase 1-4 will add it).
+    const Vertex kTriangle[] = {
+        { { 0.0f,  0.5f, 0.0f}, {1.f, 0.f, 0.f, 1.f} }, // top    - red
+        { { 0.5f, -0.5f, 0.0f}, {0.f, 1.f, 0.f, 1.f} }, // right  - green
+        { {-0.5f, -0.5f, 0.0f}, {0.f, 0.f, 1.f, 1.f} }, // left   - blue
+    };
+    return mTriangle.Create(mDevice.Get(), kTriangle);
 }
 
 bool D3DApp::CreateRenderTarget() {
@@ -140,18 +178,27 @@ void D3DApp::OnResize(int width, int height) {
 }
 
 void D3DApp::Update([[maybe_unused]] float dt) {
-    // Phase 1-1: nothing to update yet.
+    // Phase 1-2: nothing to update yet.
 }
 
 void D3DApp::Render() {
     if (!mContext || !mRTV) return; // guard against failed resize
 
-    // Clear with cornflower blue (classic D3D sample color).
+    // --- Clear ---
     constexpr float kClearColor[4] = { 0.392f, 0.584f, 0.929f, 1.0f };
-
     mContext->OMSetRenderTargets(1, mRTV.GetAddressOf(), nullptr);
     mContext->RSSetViewports(1, &mViewport);
     mContext->ClearRenderTargetView(mRTV.Get(), kClearColor);
+
+    // --- Bind pipeline state ---
+    mContext->VSSetShader(mVS.Get(), nullptr, 0);
+    mContext->PSSetShader(mPS.Get(), nullptr, 0);
+    mContext->IASetInputLayout(mInputLayout.Get());
+
+    // --- Draw triangle ---
+    mTriangle.Bind(mContext.Get());
+    mContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    mTriangle.Draw(mContext.Get());
 
     mSwapChain->Present(1, 0); // vsync
 }
