@@ -1,6 +1,24 @@
 #include "D3DApp.h"
 
+#include <DirectXMath.h>
 #include <iterator>
+
+namespace {
+
+// Mirrors cbuffer PerObject : register(b0) in vertex.hlsl.
+// Size: 64 + 16 = 80 bytes  (multiple of 16 — D3D11 requirement).
+struct alignas(16) PerObjectCB {
+    DirectX::XMFLOAT4X4 mvpMatrix; // 64 bytes
+    DirectX::XMFLOAT4   tintColor; // 16 bytes
+};
+static_assert(sizeof(PerObjectCB) % 16 == 0,
+    "PerObjectCB must be a multiple of 16 bytes");
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// Lifetime
+// ---------------------------------------------------------------------------
 
 D3DApp::~D3DApp() {
     // Ensure GPU is done before releasing resources.
@@ -10,6 +28,10 @@ D3DApp::~D3DApp() {
         mContext->Flush();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
 
 bool D3DApp::Init(HWND hwnd, int width, int height) {
     mWidth  = width;
@@ -97,6 +119,10 @@ bool D3DApp::Init(HWND hwnd, int width, int height) {
     return InitPipeline(shaderDir);
 }
 
+// ---------------------------------------------------------------------------
+// InitPipeline
+// ---------------------------------------------------------------------------
+
 bool D3DApp::InitPipeline(const std::filesystem::path& shaderDir) {
     // Load vertex and pixel shaders from pre-compiled .cso files.
     if (!mVS.Load(mDevice.Get(), shaderDir / L"vertex.cso")) return false;
@@ -107,7 +133,7 @@ bool D3DApp::InitPipeline(const std::filesystem::path& shaderDir) {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0,  0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
         { "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT,  0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
     };
-    const HRESULT hr = mDevice->CreateInputLayout(
+    HRESULT hr = mDevice->CreateInputLayout(
         layoutDesc,
         static_cast<UINT>(std::size(layoutDesc)),
         mVS.Bytecode(),
@@ -116,14 +142,28 @@ bool D3DApp::InitPipeline(const std::filesystem::path& shaderDir) {
     );
     if (FAILED(hr)) return false;
 
-    // Triangle vertices in NDC space (no MVP yet — Phase 1-4 will add it).
+    // Dynamic constant buffer for per-object data updated every frame.
+    D3D11_BUFFER_DESC cbd = {};
+    cbd.ByteWidth      = sizeof(PerObjectCB);
+    cbd.Usage          = D3D11_USAGE_DYNAMIC;
+    cbd.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(mDevice->CreateBuffer(&cbd, nullptr, mPerObjectCB.GetAddressOf()))) {
+        return false;
+    }
+
+    // Triangle vertices in world space.
     const Vertex kTriangle[] = {
-        { { 0.0f,  0.5f, 0.0f}, {1.f, 0.f, 0.f, 1.f} }, // top    - red
-        { { 0.5f, -0.5f, 0.0f}, {0.f, 1.f, 0.f, 1.f} }, // right  - green
-        { {-0.5f, -0.5f, 0.0f}, {0.f, 0.f, 1.f, 1.f} }, // left   - blue
+        { { 0.0f,  0.5f, 0.0f}, {1.f, 0.f, 0.f, 1.f} }, // top   - red
+        { { 0.5f, -0.5f, 0.0f}, {0.f, 1.f, 0.f, 1.f} }, // right - green
+        { {-0.5f, -0.5f, 0.0f}, {0.f, 0.f, 1.f, 1.f} }, // left  - blue
     };
     return mTriangle.Create(mDevice.Get(), kTriangle);
 }
+
+// ---------------------------------------------------------------------------
+// RTV helpers
+// ---------------------------------------------------------------------------
 
 bool D3DApp::CreateRenderTarget() {
     Microsoft::WRL::ComPtr<ID3D11Texture2D> backBuffer;
@@ -133,7 +173,6 @@ bool D3DApp::CreateRenderTarget() {
     hr = mDevice->CreateRenderTargetView(backBuffer.Get(), nullptr, mRTV.GetAddressOf());
     if (FAILED(hr)) return false;
 
-    // Update viewport to match current back buffer dimensions.
     mViewport.TopLeftX = 0.0f;
     mViewport.TopLeftY = 0.0f;
     mViewport.Width    = static_cast<float>(mWidth);
@@ -159,10 +198,10 @@ void D3DApp::OnResize(int width, int height) {
     ReleaseRenderTarget();
 
     HRESULT hr = mSwapChain->ResizeBuffers(
-        0,                          // keep existing buffer count
+        0,
         static_cast<UINT>(width),
         static_cast<UINT>(height),
-        DXGI_FORMAT_UNKNOWN,        // keep existing format
+        DXGI_FORMAT_UNKNOWN,
         0
     );
     if (FAILED(hr)) return;
@@ -171,14 +210,47 @@ void D3DApp::OnResize(int width, int height) {
     mHeight = height;
 
     if (!CreateRenderTarget()) {
-        // Restore old dimensions so the same size can be retried later.
         mWidth  = prevWidth;
         mHeight = prevHeight;
     }
 }
 
-void D3DApp::Update([[maybe_unused]] float dt) {
-    // Phase 1-2: nothing to update yet.
+// ---------------------------------------------------------------------------
+// Per-frame
+// ---------------------------------------------------------------------------
+
+void D3DApp::Update(float dt) {
+    // Rotate at 1 radian per second; wrap to avoid float drift over time.
+    mAngle += dt;
+    if (mAngle > DirectX::XM_2PI) mAngle -= DirectX::XM_2PI;
+
+    if (!mPerObjectCB) return;
+
+    // --- Build MVP matrix ---
+    const DirectX::XMMATRIX model = DirectX::XMMatrixRotationY(mAngle);
+
+    const DirectX::XMVECTOR eye    = DirectX::XMVectorSet(0.f, 0.f, -2.f, 0.f);
+    const DirectX::XMVECTOR target = DirectX::XMVectorZero();
+    const DirectX::XMVECTOR up     = DirectX::XMVectorSet(0.f, 1.f,  0.f, 0.f);
+    const DirectX::XMMATRIX view   = DirectX::XMMatrixLookAtLH(eye, target, up);
+
+    const float aspect = (mHeight > 0)
+        ? static_cast<float>(mWidth) / static_cast<float>(mHeight)
+        : 1.f;
+    const DirectX::XMMATRIX proj = DirectX::XMMatrixPerspectiveFovLH(
+        DirectX::XM_PIDIV4, aspect, 0.1f, 100.f);
+
+    // Transpose: DirectXMath stores row-major; HLSL float4x4 is column-major.
+    const DirectX::XMMATRIX mvp = DirectX::XMMatrixTranspose(model * view * proj);
+
+    // --- Upload to GPU via Map / Unmap ---
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (SUCCEEDED(mContext->Map(mPerObjectCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+        auto* cb = static_cast<PerObjectCB*>(mapped.pData);
+        DirectX::XMStoreFloat4x4(&cb->mvpMatrix, mvp);
+        cb->tintColor = { 1.f, 1.f, 1.f, 1.f }; // no tint
+        mContext->Unmap(mPerObjectCB.Get(), 0);
+    }
 }
 
 void D3DApp::Render() {
@@ -194,6 +266,7 @@ void D3DApp::Render() {
     mContext->VSSetShader(mVS.Get(), nullptr, 0);
     mContext->PSSetShader(mPS.Get(), nullptr, 0);
     mContext->IASetInputLayout(mInputLayout.Get());
+    mContext->VSSetConstantBuffers(0, 1, mPerObjectCB.GetAddressOf());
 
     // --- Draw triangle ---
     mTriangle.Bind(mContext.Get());
