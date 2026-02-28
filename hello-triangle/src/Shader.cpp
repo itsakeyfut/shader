@@ -25,6 +25,7 @@ std::vector<std::byte> ReadBinaryFile(const std::filesystem::path& path) {
 } // namespace
 
 bool VertexShader::Load(ID3D11Device* device, const std::filesystem::path& csoPath) {
+    if (device == nullptr) return false;
     mBytecode = ReadBinaryFile(csoPath);
     if (mBytecode.empty()) return false;
 
@@ -37,6 +38,7 @@ bool VertexShader::Load(ID3D11Device* device, const std::filesystem::path& csoPa
 }
 
 bool PixelShader::Load(ID3D11Device* device, const std::filesystem::path& csoPath) {
+    if (device == nullptr) return false;
     mBytecode = ReadBinaryFile(csoPath);
     if (mBytecode.empty()) return false;
 
