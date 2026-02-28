@@ -115,6 +115,9 @@ void D3DApp::OnResize(int width, int height) {
     if (width == 0 || height == 0) return;
     if (width == mWidth && height == mHeight) return;
 
+    const int prevWidth  = mWidth;
+    const int prevHeight = mHeight;
+
     ReleaseRenderTarget();
 
     HRESULT hr = mSwapChain->ResizeBuffers(
@@ -129,7 +132,11 @@ void D3DApp::OnResize(int width, int height) {
     mWidth  = width;
     mHeight = height;
 
-    if (!CreateRenderTarget()) return;
+    if (!CreateRenderTarget()) {
+        // Restore old dimensions so the same size can be retried later.
+        mWidth  = prevWidth;
+        mHeight = prevHeight;
+    }
 }
 
 void D3DApp::Update([[maybe_unused]] float dt) {
