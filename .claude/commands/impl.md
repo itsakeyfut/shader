@@ -15,7 +15,7 @@ Now proceed with implementing this issue.
 **Development Guidelines:**
 - All comments and documentation must be written in English
 - HLSL: follow HLSL coding conventions (PascalCase for functions/structs, camelCase for locals)
-- C++: follow modern C++17 patterns, RAII for D3D COM objects (ComPtr<T>)
+- C++: follow modern C++23 patterns, RAII for D3D COM objects (ComPtr<T>)
 - Keep shader code and host code clearly separated
 - Consider performance: minimize CPU-GPU synchronization, batch draw calls
 - Use D3D debug layer during development
